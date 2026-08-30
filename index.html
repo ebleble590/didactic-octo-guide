@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>CITYLINE: MIDTOWN</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#9aa9b2;touch-action:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+canvas{display:block}
+#hud{position:fixed;z-index:5;top:max(12px,env(safe-area-inset-top));left:18px;color:#fff;text-shadow:0 2px 8px #000;font-weight:700;pointer-events:none}
+#title{font-size:23px;font-weight:900}#sub{font-size:12px;margin-top:3px;opacity:.9}
+#hint{position:fixed;z-index:5;right:16px;top:max(12px,env(safe-area-inset-top));color:#fff;text-align:right;text-shadow:0 2px 7px #000;font-size:12px;pointer-events:none}
+#joy{position:fixed;z-index:10;left:25px;bottom:max(24px,env(safe-area-inset-bottom));width:148px;height:148px;border:2px solid #ffffff77;border-radius:50%;background:#20263388;box-shadow:0 7px 24px #0006}
+#knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px;border-radius:50%;background:#e9edf0dd;box-shadow:0 3px 15px #0008}
+#actions{position:fixed;z-index:10;right:20px;bottom:max(25px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+button{border:1px solid #fff6;border-radius:16px;background:#252a33cc;color:#fff;font-size:15px;font-weight:800;padding:15px 21px;box-shadow:0 5px 15px #0006;backdrop-filter:blur(5px)}
+#enter{display:none}#speed{position:fixed;z-index:5;right:18px;bottom:18px;color:#fff;text-shadow:0 2px 8px #000;font-size:20px;font-weight:900;pointer-events:none}
+#toast{position:fixed;z-index:20;left:50%;bottom:30%;transform:translateX(-50%);background:#111c;color:#fff;padding:11px 16px;border-radius:12px;display:none}
+</style>
+</head>
+<body>
+<div id="hud"><div id="title">CITYLINE: MIDTOWN</div><div id="sub">EMPIRE STATE BUILDING • 2-BLOCK DISTRICT</div></div>
+<div id="hint">🖐 오른쪽 화면 드래그 = 카메라<br>왼쪽 조이스틱 = 이동 / 운전</div>
+<div id="joy"><div id="knob"></div></div>
+<div id="actions"><button id="enter">🚗 차량 탑승</button><button id="brake">브레이크</button></div>
+<div id="speed">0 km/h</div><div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x8ea0aa);
+scene.fog=new THREE.Fog(0x8ea0aa,105,310);
+const camera=new THREE.PerspectiveCamera(64,innerWidth/innerHeight,.1,420);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.08;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xeaf3ff,0x343b42,1.65));
+const sun=new THREE.DirectionalLight(0xfff2d8,2.55);
+sun.position.set(-90,150,80); sun.castShadow=true;
+sun.shadow.mapSize.set(1024,1024);
+sun.shadow.camera.left=-130;sun.shadow.camera.right=130;sun.shadow.camera.top=130;sun.shadow.camera.bottom=-130;
+scene.add(sun);
+
+const M=(c,r=.8,m=0)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
+const road=M(0x202326,.95), sidewalk=M(0xb7b7b0,.92), curb=M(0x777a78,.9), lane=M(0xf3f0df,.6), yellow=M(0xd4a83b,.55);
+function mesh(g,m,x,y,z,cast=true){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=cast;o.receiveShadow=true;scene.add(o);return o}
+function box(w,h,d,m,x,y,z){return mesh(new THREE.BoxGeometry(w,h,d),m,x,y,z)}
+function cyl(r,h,m,x,y,z,seg=16){return mesh(new THREE.CylinderGeometry(r,r,h,seg),m,x,y,z)}
+function rotBox(w,h,d,m,x,y,z,rx=0,ry=0,rz=0){const o=box(w,h,d,m,x,y,z);o.rotation.set(rx,ry,rz);return o}
+
+const ground=box(260,.25,260,M(0x666b69,1),0,-.16,0,false);
+
+// Roads: compact Midtown grid, 4 avenues/streets around the landmark.
+const roadsX=[-72,0,72], roadsZ=[-72,0,72];
+for(const x of roadsX){
+  box(19,.12,250,road,x,.03,0);
+  box(2.2,.14,250,curb,x-11,.10,0); box(2.2,.14,250,curb,x+11,.10,0);
+  for(let z=-122;z<122;z+=12) box(.32,.025,5.5,lane,x,.105,z);
+}
+for(const z of roadsZ){
+  box(250,.12,19,road,0,.03,z);
+  box(250,.14,2.2,curb,0,.10,z-11); box(250,.14,2.2,curb,0,.10,z+11);
+  for(let x=-122;x<122;x+=12) box(5.5,.025,.32,lane,x,.105,z);
+}
+// yellow curb/center details
+for(const x of roadsX) for(let z=-120;z<120;z+=9) box(.18,.025,4,yellow,x-9.8,.115,z);
+for(const z of roadsZ) for(let x=-120;x<120;x+=9) box(4,.025,.18,yellow,x,z-9.8,.115);
+
+// Crosswalks at intersections
+for(const x of roadsX)for(const z of roadsZ){
+  for(let i=-4;i<=4;i++) box(1.25,.035,8,lane,x+i*2.1,.13,z-10);
+  for(let i=-4;i<=4;i++) box(8,.035,1.25,lane,x-10,.13,z+i*2.1);
+}
+
+// Procedural building facade texture
+function facadeTexture(base="#b9b2a8", lit="#d7d4cc", dark="#252a30"){
+ const c=document.createElement("canvas");c.width=128;c.height=256;const x=c.getContext("2d");
+ x.fillStyle=base;x.fillRect(0,0,128,256);
+ for(let yy=8;yy<250;yy+=18)for(let xx=8;xx<125;xx+=16){
+   x.fillStyle=Math.random()>.18?lit:dark;x.fillRect(xx,yy,8,10);
+ }
+ for(let yy=0;yy<256;yy+=18){x.fillStyle="#7b766f33";x.fillRect(0,yy,128,2)}
+ const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const facade1=facadeTexture("#8e9291","#d4d8d4","#1e252c");
+const facade2=facadeTexture("#b8a999","#eee3d5","#2b3035");
+const facade3=facadeTexture("#727b82","#b9c2c5","#1d2429");
+function building(w,d,h,x,z,tex,roof=true){
+ const mat=new THREE.MeshStandardMaterial({map:tex,roughness:.82});
+ const b=box(w,h,d,mat,x,h/2,z);
+ if(roof) box(w+.5,.5,d+.5,M(0x45484a,.9),x,h+.25,z);
+ return b;
+}
+// Two-block district, varied heights and setbacks
+building(34,40,68,-47,-47,facade1);
+building(31,40,92,47,-47,facade2);
+building(38,31,54,-47,47,facade3);
+building(42,31,78,47,47,facade1);
+building(28,28,48,-91,-47,facade2);
+building(27,28,61,91,-47,facade3);
+building(30,28,72,-91,47,facade1);
+building(29,28,57,91,47,facade2);
+
+// Smaller storefronts close to the streets
+const shop= M(0x6e7477,.7);
+for(const [x,z] of [[-47,-14],[47,-14],[-47,14],[47,14],[-14,-47],[14,-47],[-14,47],[14,47]]){
+ box(25,12,10,shop,x,6,z);
+ for(let i=-1;i<=1;i++) box(5,5,.15,M(0x1e2b31,.35,.05),x+i*7,6,z-(z<0?-5.08:5.08));
+}
+
+// Empire State Building at center, stepped Art Deco silhouette
+const stone=M(0xb6aaa0,.72), stone2=M(0x8e837a,.78), darkWin=M(0x26363e,.28,.12);
+function towerPart(w,d,h,y){box(w,h,d,stone,0,y,0)}
+towerPart(30,34,34,17);
+towerPart(24,28,16,42);
+towerPart(18,22,15,57.5);
+towerPart(13,17,13,71.5);
+towerPart(9,12,11,83.5);
+box(6,8,8,stone2,0,93,0);
+box(3.5,5,5,stone2,0,99.5,0);
+box(1.8,2,2,stone2,0,103,0);
+// vertical ribs and windows
+for(let y=7;y<88;y+=5){
+  const width=y<35?30:y<51?24:y<66?18:y<79?13:9;
+  for(let x=-width/2+2;x<=width/2-2;x+=4) box(.8,2.2,.18,darkWin,x,y,-17.12+(y>35?Math.min(0,(y-35)*.12):0));
+  for(let x=-width/2+2;x<=width/2-2;x+=4) box(.8,2.2,.18,darkWin,x,y,17.12-(y>35?Math.min(0,(y-35)*.12):0));
+}
+for(let y=8;y<88;y+=5){
+  const depth=y<35?34:y<51?28:y<66?22:y<79?17:12;
+  for(let z=-depth/2+2;z<=depth/2-2;z+=4){box(.18,2.2,.8,darkWin,-15.12+(y>35?Math.min(0,(y-35)*.12):0),y,z);box(.18,2.2,.8,darkWin,15.12-(y>35?Math.min(0,(y-35)*.12):0),y,z)}
+}
+box(34,.7,2.4,stone2,0,8,0);
+
+// Trees and benches on sidewalks
+const trunk=M(0x5b3b25,.95), leaves=M(0x244f2e,.9);
+for(const [x,z] of [[-61,-61],[-35,-61],[61,-61],[35,-61],[-61,61],[-35,61],[35,61],[61,61],[-61,-35],[61,-35],[-61,35],[61,35]]){
+ cyl(0.45,3,trunk,x,1.5,z,10); cyl(2.5,4,leaves,x,4,z,12);
+}
+const benchMat=M(0x6b4b32,.9);
+for(const [x,z,r] of [[-61,-12,0],[61,12,Math.PI],[12,-61,Math.PI/2],[-12,61,-Math.PI/2]]){
+ const b=box(4.5,.35,.8,benchMat,x,1.3,z);b.rotation.y=r;
+}
+
+// Traffic lights
+const black=M(0x191b1c,.75);
+function traffic(x,z,rot=0){
+ const p=box(.35,5,.35,black,x,2.5,z);p.rotation.y=rot;
+ box(1.1,2.7,.7,black,x,4.6,z);
+ for(let i=0;i<3;i++) cyl(.18,.08,[M(0x4a1512),M(0x7a5d16),M(0x164c28)][i],x,5.35-i*.7,z-.38,12);
+}
+for(const [x,z] of [[-10,-10],[10,10],[-10,10],[10,-10]]) traffic(x,z);
+
+// Character
+const player=new THREE.Group();scene.add(player);
+const skin=M(0xc9875b,.8), shirt=M(0x263c5a,.72), pants=M(0x17191c,.85), shoe=M(0x101214,.9);
+const torso=mesh(new THREE.BoxGeometry(1.6,2.2,.9),shirt,0,2.25,0);player.add(torso);
+const head=mesh(new THREE.SphereGeometry(.72,20,14),skin,0,4.05,0);player.add(head);
+const armL=mesh(new THREE.CapsuleGeometry(.24,1.35,6,10),skin,-1.05,2.35,0);armL.rotation.z=-.12;player.add(armL);
+const armR=mesh(new THREE.CapsuleGeometry(.24,1.35,6,10),skin,1.05,2.35,0);armR.rotation.z=.12;player.add(armR);
+for(const x of [-.43,.43]){const l=mesh(new THREE.CapsuleGeometry(.27,1.5,6,10),pants,x,0.85,0);player.add(l);const s=mesh(new THREE.BoxGeometry(.55,.28,1),shoe,x,.05,-.18);player.add(s)}
+player.position.set(0,.05,28);
+
+// Cars
+const cars=[];
+function makeCar(color,x,z,rot=0,ai=false){
+ const g=new THREE.Group();g.position.set(x,.25,z);g.rotation.y=rot;
+ const body=M(color,.55,.08), glass=M(0x1d2a32,.18,.18), tire=M(0x101112,.9);
+ const base=new THREE.Mesh(new THREE.BoxGeometry(4.4,1.0,2.0),body);base.position.y=.85;g.add(base);
+ const hood=new THREE.Mesh(new THREE.BoxGeometry(1.2,.45,1.85),body);hood.position.set(1.45,1.35,0);g.add(hood);
+ const cabin=new THREE.Mesh(new THREE.BoxGeometry(2.1,.85,1.7),body);cabin.position.set(-.15,1.45,0);g.add(cabin);
+ const win=new THREE.Mesh(new THREE.BoxGeometry(1.75,.55,1.72),glass);win.position.set(-.15,1.52,0);g.add(win);
+ for(const xx of [-1.45,1.45])for(const zz of [-1.05,1.05]){const w=new THREE.Mesh(new THREE.CylinderGeometry(.43,.43,.28,16),tire);w.rotation.z=Math.PI/2;w.position.set(xx,.45,zz);g.add(w)}
+ for(const zz of [-.65,.65]){const l=new THREE.Mesh(new THREE.BoxGeometry(.18,.18,.3),M(0xfff5c2,.25));l.position.set(2.25,1,zz);g.add(l)}
+ scene.add(g);cars.push({g,ai,vel:0,angle:rot});
+ return g;
+}
+const car=makeCar(0x2d5f8e,0,18,0,false);
+makeCar(0xb12c28,-72,-42,Math.PI/2,true);
+makeCar(0xe0b62b,72,42,-Math.PI/2,true);
+makeCar(0x4c4f55,-42,72,Math.PI,true);
+makeCar(0xeeeeee,42,-72,0,true);
+
+// NPCs
+const npcs=[];
+function npc(x,z,dir){
+ const g=new THREE.Group();g.position.set(x,.05,z);g.rotation.y=dir;
+ const body=M(0x4b5f7a,.9), skin2=M(0xc98b64,.8), dark=M(0x22252a,.9);
+ const b=mesh(new THREE.BoxGeometry(.8,1.35,.45),body,0,1.05,0);g.add(b);
+ const h=mesh(new THREE.SphereGeometry(.34,14,10),skin2,0,2,0);g.add(h);
+ const l1=mesh(new THREE.CapsuleGeometry(.12,.75,5,8),dark,-.2,.35,0);g.add(l1);
+ const l2=mesh(new THREE.CapsuleGeometry(.12,.75,5,8),dark,.2,.35,0);g.add(l2);
+ scene.add(g);npcs.push({g,t:Math.random()*10,phase:Math.random()*6.28});
+}
+[[-65,-8],[65,8],[-8,-65],[8,65],[-57,57],[57,-57]].forEach((p,i)=>npc(p[0],p[1],i%2?Math.PI/2:0));
+
+// Controls
+let inCar=false, speed=0, camYaw=0, camPitch=.34, joyX=0,joyY=0, dragging=false,lastX=0,lastY=0;
+const enter=document.getElementById("enter"), brake=document.getElementById("brake"), speedEl=document.getElementById("speed"), toast=document.getElementById("toast");
+function show(t){toast.textContent=t;toast.style.display="block";clearTimeout(show.t);show.t=setTimeout(()=>toast.style.display="none",1300)}
+function dist(a,b){return Math.hypot(a.x-b.x,a.z-b.z)}
+function nearestCar(){let best=null,bd=6;for(const c of cars){if(c.ai)continue;const d=dist(player.position,c.g.position);if(d<bd){bd=d;best=c}}return best}
+function toggleCar(){
+ if(inCar){inCar=false;player.visible=true;car.g.visible=true;player.position.set(car.g.position.x+2.7,.05,car.g.position.z);show("차량에서 내렸습니다");enter.textContent="🚗 차량 탑승";return}
+ const c=nearestCar();if(!c){show("차량 가까이에서 눌러주세요");return}
+ inCar=true;player.visible=false;car.g.visible=true;show("탑승했습니다");
+}
+enter.onclick=toggleCar;
+brake.onpointerdown=()=>{speed*=.35};brake.onpointerup=()=>{};
+const joy=document.getElementById("joy"),knob=document.getElementById("knob");
+function setJoy(e){const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;const max=52;const n=Math.hypot(dx,dy);if(n>max){dx*=max/n;dy*=max/n}joyX=dx/max;joyY=dy/max;knob.style.transform=`translate(${dx}px,${dy}px)`}
+joy.addEventListener("pointerdown",e=>{joy.setPointerCapture(e.pointerId);setJoy(e)});
+joy.addEventListener("pointermove",e=>{if(e.buttons)setJoy(e)});
+joy.addEventListener("pointerup",()=>{joyX=joyY=0;knob.style.transform="translate(0,0)"});
+renderer.domElement.addEventListener("pointerdown",e=>{if(e.clientX<230)return;dragging=true;lastX=e.clientX;lastY=e.clientY});
+renderer.domElement.addEventListener("pointermove",e=>{if(!dragging)return;camYaw-=(e.clientX-lastX)*.006;camPitch-=(e.clientY-lastY)*.004;camPitch=Math.max(-.05,Math.min(.9,camPitch));lastX=e.clientX;lastY=e.clientY});
+renderer.domElement.addEventListener("pointerup",()=>dragging=false);
+renderer.domElement.addEventListener("pointercancel",()=>dragging=false);
+
+// Desktop fallback
+const keys={};addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=1;if(e.key.toLowerCase()==="e")toggleCar()});addEventListener("keyup",e=>keys[e.key.toLowerCase()]=0);
+function inputX(){return joyX+(keys.d?1:0)-(keys.a?1:0)}
+function inputY(){return joyY+(keys.s?1:0)-(keys.w?1:0)}
+
+// Animation
+let last=performance.now();
+function loop(now){
+ const dt=Math.min(.033,(now-last)/1000);last=now;
+ const ix=Math.max(-1,Math.min(1,inputX())), iy=Math.max(-1,Math.min(1,inputY()));
+ if(!inCar){
+   const mag=Math.hypot(ix,iy);
+   if(mag>.08){
+     const ang=Math.atan2(ix,-iy)+camYaw;
+     const sp=5.8;
+     player.position.x+=Math.sin(ang)*sp*dt;player.position.z+=Math.cos(ang)*sp*dt;
+     player.rotation.y=ang;
+   }
+   player.position.x=Math.max(-118,Math.min(118,player.position.x));player.position.z=Math.max(-118,Math.min(118,player.position.z));
+ }else{
+   const throttle=-iy;
+   speed+=throttle*20*dt;speed*=Math.pow(.28,dt);speed=Math.max(-9,Math.min(26,speed));
+   car.g.rotation.y-=ix*1.65*dt*(Math.abs(speed)/8+.25);
+   car.g.position.x+=Math.sin(car.g.rotation.y)*speed*dt;
+   car.g.position.z+=Math.cos(car.g.rotation.y)*speed*dt;
+   car.g.position.x=Math.max(-118,Math.min(118,car.g.position.x));car.g.position.z=Math.max(-118,Math.min(118,car.g.position.z));
+ }
+ // AI traffic
+ for(const c of cars)if(c.ai){
+   c.g.position.x+=Math.sin(c.angle)*5.2*dt;c.g.position.z+=Math.cos(c.angle)*5.2*dt;
+   if(c.g.position.x>122)c.g.position.x=-122;if(c.g.position.x<-122)c.g.position.x=122;
+   if(c.g.position.z>122)c.g.position.z=-122;if(c.g.position.z<-122)c.g.position.z=122;
+ }
+ for(const n of npcs){n.t+=dt;n.g.position.x+=Math.sin(n.g.rotation.y)*.65*dt;n.g.position.z+=Math.cos(n.g.rotation.y)*.65*dt;if(Math.abs(n.g.position.x)>105||Math.abs(n.g.position.z)>105)n.g.rotation.y+=Math.PI/2}
+ // Camera follows
+ const target=inCar?car.g:player;
+ const distance=inCar?11:9;
+ const cx=target.position.x-Math.sin(camYaw)*distance;
+ const cz=target.position.z-Math.cos(camYaw)*distance;
+ const cy=target.position.y+(inCar?5.2:4.8)+Math.sin(camPitch)*3;
+ camera.position.lerp(new THREE.Vector3(cx,cy,cz),.12);
+ camera.lookAt(target.position.x,target.position.y+(inCar?1.2:2.0),target.position.z);
+ enter.style.display=(!inCar&&nearestCar())?"block":"none";
+ speedEl.textContent=Math.round(Math.abs(speed)*3.6)+" km/h";
+ renderer.render(scene,camera);requestAnimationFrame(loop);
+}
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
